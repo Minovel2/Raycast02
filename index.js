@@ -1,111 +1,123 @@
 import {world, Player, Entity, system, MolangVariableMap} from "@minecraft/server"
 let over = world.getDimension("overworld");
-let id = 0;
-let raycast = {};
 
 //---------------------
-// пример создания луча
+// пример импорта и создания луча
+/*
+import {world, system} from "@minecraft/server"
+let over = world.getDimension("overworld");
+import {Ray} from "./Ray.js"
+
 system.runInterval(() => {
-    let p = world.getAllPlayers();
-    p[0].createRay(10, (obj) => {
+    for (let p of world.getAllPlayers()) {
+        p.createRay(10, (obj) => {
         over.runCommandAsync(`particle minecraft:basic_flame_particle ${obj.x} ${obj.y} ${obj.z}`);
     } );
+    }
 },19)
+*/
 //---------------------
 
-// снизу конструктор лучей и функции для луча
-function Ray(maxSteps, x, y, z, tpx, tpy, tpz, func, options = {} ) {
-  raycast[id] = {}
-  raycast[id].step = 0;
-  raycast[id].maxSteps = maxSteps;
-  raycast[id].x = x;
-  raycast[id].y = y;
-  raycast[id].z = z;
-  raycast[id].tpx = tpx * (options?.multiply || 1);
-  raycast[id].tpy = tpy * (options?.multiply || 1);
-  raycast[id].tpz = tpz * (options?.multiply || 1);
-  raycast[id].tpLength = Math.sqrt(tpx**2 + tpy**2 + tpz**2) * (options?.multiply || 1);
-  raycast[id].func = func;
-  raycast[id].id = id;
-  raycast[id].dimension = options?.dimension || over;
-  raycast[id].source = options?.source;
-  raycast[id].ignoreBlocks = options?.ignoreBlocks || false;
-  raycast[id].stepsPerTick = options?.stepsPerTick || 1;
-   raycast[id].autoMove = options?.autoMove || true;
-  raycast[id].onDeathFunc = options?.onDeathFunc || function() {};
+// снизу конструктор лучей и функции для луча, если не знаете, что это такое , то лучше не трогать.
+export class Ray {
+    static raycast = new Set();
+    static getCount() {
+        return Ray.raycast.size;
+    }
+    constructor(maxSteps, x, y, z, tpx, tpy, tpz, func, options = {} ) {
+        
+        this.step = 0;
+        this.maxSteps = maxSteps;
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.tpx = tpx * (options?.multiply || 1);
+        this.tpy = tpy * (options?.multiply || 1);
+        this.tpz = tpz * (options?.multiply || 1);
+        this.tpLength = Math.sqrt(tpx**2 + tpy**2 + tpz**2) * (options?.multiply || 1);
+        this.func = func;
+        this.dimension = options?.dimension || over;
+        this.source = options?.source;
+        this.ignoreBlocks = options?.ignoreBlocks || false;
+        this.stepsPerTick = options?.stepsPerTick || 1;
+        this.autoMove = options?.autoMove || true;
+        this.onDeathFunc = options?.onDeathFunc || function() {};
+        
+        if (options?.l) {
+            this.rotate(options.l);
+        }
+        Ray.raycast.add(this);
+    }
   
-  if (options?.l) {
-      rotate(raycast[id], options.l);
+  rotate(l) {
+      let rad = l * Math.PI / 180;
+      let x = this.tpx * Math.cos(rad) - this.tpz * Math.sin(rad);
+      let z = this.tpx * Math.sin(rad) + this.tpz * Math.cos(rad);
+      this.tpx = x;
+      this.tpz = z;
   }
-  id++;
-  }
+  
+  move(useFunc = false) {
+    try {
+        let block = false;
+        
+        if (!this.ignoreBlocks) {
+            block = this.dimension.getBlockFromRay({
+                x: this.x,
+                y: this.y,
+                z: this.z
+            }, {
+                x: this.tpx,
+                y: this.tpy,
+                z: this.tpz
+            }, {
+                maxDistance: this.tpLength * 1.1
+            });
+        }
+        if (!block) {
+        this.x += this.tpx;
+        this.y += this.tpy;
+        this.z += this.tpz;
+        
+        if (useFunc)
+        this.func(this);
+        
+        this.step += 1;
+        
+        } else {
+            this.onDeathFunc();
+            Ray.raycast.delete(this);
+        }
+        if (this.step >= this.maxSteps) {
+        this.onDeathFunc();
+        Ray.raycast.delete(this);
+    }
+    } catch {
+        Ray.raycast.delete(this);
+    }
+}
+}
+
+Ray.prototype.delete = function() {
+    Ray.raycast.delete(this);
+}
+
 Player.prototype.createRay = function(maxSteps, func, options = {} ) {
     let loc = this.location;
     let vec = this.getViewDirection();
     options.source = this;
     options.dimension = this.dimension;
-    new Ray(maxSteps, loc.x, loc.y + 1.62, loc.z, vec.x, vec.y, vec.z, func, options)
+    return new Ray(maxSteps, loc.x, loc.y + 1.62, loc.z, vec.x, vec.y, vec.z, func, options);
 };
 
 system.runInterval(() => {
-    for (let prop in raycast) {
-        if (raycast[prop].autoMove) {
-        let ray = raycast[prop];
+    for (let ray of Ray.raycast) {
+        if (ray.autoMove) {
         let i1 = Math.floor(ray.step + ray.stepsPerTick) - Math.floor(ray.step);
         for(let i=0;i<i1 && ray;i++) {
-            move(ray, true);
+            ray.move(true);
         }
         ray.step += ray.stepsPerTick - i1;
         }
     }
 }, 0)
-  
-function move(obj, useFunc = false) {
-    try {
-        let block = false;
-        
-        if (!obj.ignoreBlocks) {
-            block = obj.dimension.getBlockFromRay({
-                x: obj.x,
-                y: obj.y,
-                z: obj.z
-            }, {
-                x: obj.tpx,
-                y: obj.tpy,
-                z: obj.tpz
-            }, {
-                maxDistance: obj.tpLength * 1.1
-            });
-        }
-        if (!block) {
-        obj.x += obj.tpx;
-        obj.y += obj.tpy;
-        obj.z += obj.tpz;
-        
-        if (useFunc)
-        obj.func(obj);
-        
-        obj.step += 1;
-        
-        } else {
-            obj.onDeathFunc();
-            delete raycast[obj.id];
-        }
-        if (obj.step >= obj.maxSteps) {
-        obj.onDeathFunc();
-        delete raycast[obj.id];
-    }
-    } catch {
-        delete raycast[obj.id];
-    }
-}
-function deleteRay(obj) {
-    delete raycast[obj.id];
-}
-function rotate(obj, l) {
-    let rad = l * Math.PI / 180;
-    let x = obj.tpx * Math.cos(rad) - obj.tpz * Math.sin(rad);
-    let z = obj.tpx * Math.sin(rad) + obj.tpz * Math.cos(rad);
-    obj.tpx = x;
-    obj.tpz = z;
-}
