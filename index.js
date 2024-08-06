@@ -156,7 +156,7 @@ export class OptimizedRay {
             z: velocity.z * multiply
         };
         
-        this.tpLength = Math.sqrt(this.velocity.x**2 + this.velocity.y**2 + this.velocity.z**2) * multiply;
+        this.tpLength = Math.sqrt(this.velocity.x**2 + this.velocity.y**2 + this.velocity.z**2);
   }
 }
 
