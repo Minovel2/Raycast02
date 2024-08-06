@@ -1,4 +1,4 @@
-import {world, Player, Entity, system, MolangVariableMap} from "@minecraft/server"
+import {world, Entity, system} from "@minecraft/server"
 const over = world.getDimension("overworld");
 
 export class Options {
@@ -182,13 +182,13 @@ OptimizedRay.prototype.delete = function() {
     Ray.raycast.delete(this);
 }
 
-Player.prototype.createRay = function(ClassOfRay = OptimizedRay, ...options) {
+Entity.prototype.createRay = function(ClassOfRay = OptimizedRay, ...options) {
     const loc = this.location;
     const vec = this.getViewDirection();
     const r = new ClassOfRay(...options);
     r.source = this;
     r.dimension = this.dimension;
-    r.setVelocity(vec);
+    r.setVelocity(vec, r.options.multiply);
     r.location = {x: loc.x, y: loc.y + 1.32, z: loc.z};
     return r;
 };
