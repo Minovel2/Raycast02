@@ -9,19 +9,38 @@ export class Options {
             this._moveFunction = _tick;
         }
         
+        if (options?.onTriggerBlockEvent) {
+            this.ignoreBlocks = options?.ignoreBlocks || false;
+        } else {
+            this.ignoreBlocks = options?.ignoreBlocks || true;
+        }
+        
         this.name = options?.name || "";
         this.moveInRealTime = options?.moveInRealTime || false;
         this.maxSteps = options?.maxSteps || 10;
-        this.func = options?.func || function() {};
+        this.func = options?.func || voidFunc;
+        this.onTriggerBlockEvent = options?.onTriggerBlockEvent || voidFunc;
         this.dimension = options?.dimension || over;
         this.source = options?.source;
-        this.ignoreBlocks = options?.ignoreBlocks || false;
         this.stepsPerTick = options?.stepsPerTick || 1;
         this.stepsPerSecond = options?.stepsPerSecond || 1;
         this.canMove = options?.canMove || true;
-        this.onDeathFunc = options?.onDeathFunc || function() {};
+        this.onDeathEvent = options?.onDeathEvent || voidFunc;
         this.multiply = options?.multiply || 1;
         this.l = options?.l || 0;
+    }
+    
+    get ignoreBlocks() {
+        return this._ignoreBlocks;
+    }
+    
+    set ignoreBlocks(value) {
+        if (value) {
+            this._blockRaycastFunction = voidFunc;
+        } else {
+            this._blockRaycastFunction = blockRaycastFunction;
+        }
+        this._ignoreBlocks = value;
     }
     
     clone() {
@@ -37,8 +56,18 @@ export class OptimizedRay {
     static getCount() {
         return Ray.raycast.size;
     }
+    static getAllRays() {return Ray.raycast;}
+    static getRaysInRadius(location, r) {
+        const s = new Set();
+        const r2 = r**2;
+        for (const ray of Ray.raycast) {
+            if ((location.x - ray.location.x)**2 + (location.y - ray.location.y)**2 + (location.z - ray.location.z)**2 <= r2)
+            s.add(ray);
+        }
+        return s;
+    }
     
-    constructor(location, velocity, options = new Options()) {
+    constructor(options = new Options(), location = {x:0, y:0, z:0}, velocity = {x:0, y:0, z:0}) {
         this.options = options;
         this.steps = 0;
         this._tick = 0;
@@ -51,8 +80,14 @@ export class OptimizedRay {
         Ray.raycast.add(this);
     }
     
+    getRaysInRadius(r) {
+        const s = OptimizedRay.getRaysInRadius(this.location, r);
+        s.delete(this);
+        return s;
+    }
+    
     kill() {
-        this.options.onDeathFunc(this);
+        this.options.onDeathEvent(this);
         this.delete();
     }
     
@@ -95,29 +130,19 @@ export class OptimizedRay {
   
   move(useFunc = false) {
     try {
-        let block = false;
-        
-        if (!this.options.ignoreBlocks) {
-            block = this.dimension.getBlockFromRay(this.location, this.velocity, {
-                maxDistance: this.tpLength * 1.1
-            });
-        }
-        if (!block) {
-        this.location.x += this.velocity.x;
-        this.location.y += this.velocity.y;
-        this.location.z += this.velocity.z;
+        this.options._blockRaycastFunction(this);
+        if (this.isActive) {
+            this.location.x += this.velocity.x;
+            this.location.y += this.velocity.y;
+            this.location.z += this.velocity.z;
+            this.steps += 1;
         
         if (useFunc)
         this.options.func(this);
         
-        this.steps += 1;
-        
-        } else {
-            this.kill();
-        }
-        if (this.steps >= this.options.maxSteps) {
+        if (this.steps >= this.options.maxSteps)
         this.kill();
-    }
+        }
     } catch (e) {
         console.warn(e);
         this.delete();
@@ -137,11 +162,8 @@ export class OptimizedRay {
 
 export class Ray extends OptimizedRay {
     static raycast = new Set();
-    static getCount() {
-        return Ray.raycast.size;
-    }
-    constructor(location, velocity, options = new Options()) {
-        super(location, velocity, options);
+    constructor(options = new Options(), location = {x:0, y:0, z:0}, velocity = {x:0, y:0, z:0}) {
+        super(options, location, velocity);
         this.options = this.options.clone();
        /* if (options.l) {
             this.rotate(options.l);
@@ -160,12 +182,14 @@ OptimizedRay.prototype.delete = function() {
     Ray.raycast.delete(this);
 }
 
-Player.prototype.createRay = function(options = new Options()) {
+Player.prototype.createRay = function(ClassOfRay = OptimizedRay, ...options) {
     const loc = this.location;
     const vec = this.getViewDirection();
-    const r = new Ray({x: loc.x, y: loc.y + 1.62, z: loc.z}, vec, options);
+    const r = new ClassOfRay(...options);
     r.source = this;
     r.dimension = this.dimension;
+    r.setVelocity(vec);
+    r.location = {x: loc.x, y: loc.y + 1.32, z: loc.z};
     return r;
 };
 
@@ -183,7 +207,7 @@ system.runInterval(() => {
 
 function _tick (ray) {
     ray._tick += ray.options.stepsPerTick;
-    const i1 = Math.floor(ray._tick);
+    const i1 = Math.trunc(ray._tick);
     ray._tick -= i1;
         for(let i=0;i<i1 && ray.isActive;i++) {
             if (ray.canMove)
@@ -194,11 +218,21 @@ function _tick (ray) {
 
 function _time (ray) {
     ray._tick += ray.options.stepsPerSecond * delta
-    const i1 = Math.floor(ray._tick);
+    const i1 = Math.trunc(ray._tick);
     ray._tick -= i1;
         for(let i=0;i<i1 && ray.isActive;i++) {
             if (ray.canMove)
             ray.move(true);
             else ray.options.func(ray);
         }
+}
+
+function voidFunc() {}
+
+function blockRaycastFunction(ray) {
+    const data = ray.dimension.getBlockFromRay(ray.location, ray.velocity, {
+                maxDistance: ray.tpLength * 1.1
+            });
+            if (data)
+            ray.options.onTriggerBlockEvent(ray, data);
 }
